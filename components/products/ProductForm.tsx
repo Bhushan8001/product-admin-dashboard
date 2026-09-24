@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addProduct, getProduct, updateProduct } from "@/lib/api/products";
-import { getLocalProduct, saveAddedProduct, saveUpdatedProduct } from "@/lib/product-storage";
+import { getLocalProduct, isLocalOnlyProduct, saveAddedProduct, saveUpdatedProduct } from "@/lib/product-storage";
 import { Product, ProductFormData } from "@/lib/types";
 import Button from "../ui/Button";
 import Loader from "../ui/Loader";
@@ -25,7 +25,13 @@ export default function ProductForm({ productId }: { productId?: number }) {
     (async () => {
       try {
         const local = getLocalProduct(productId);
-        const product = local?.title ? local : await getProduct(productId);
+        if (local?.title) {
+          setForm({ title: local.title, description: local.description, category: local.category, price: String(local.price), stock: String(local.stock), thumbnail: local.thumbnail });
+          setLoading(false);
+          return;
+        }
+
+        const product = await getProduct(productId);
         setForm({ title: product.title, description: product.description, category: product.category, price: String(product.price), stock: String(product.stock), thumbnail: product.thumbnail });
       } catch (err: any) {
         setError(err?.message || "Unable to load this product.");
@@ -58,6 +64,12 @@ export default function ProductForm({ productId }: { productId?: number }) {
     const payload: Partial<Product> = { title: form.title.trim(), description: form.description.trim(), category: form.category.trim(), price: Number(form.price), stock: Number(form.stock), thumbnail: form.thumbnail.trim() || "https://cdn.dummyjson.com/product-images/1/thumbnail.jpg" };
     try {
       if (productId) {
+        if (isLocalOnlyProduct(productId)) {
+          saveUpdatedProduct(productId, payload);
+          router.push(`/products/${productId}`);
+          return;
+        }
+
         const response = await updateProduct(productId, payload);
         saveUpdatedProduct(productId, { ...payload, ...response });
         router.push(`/products/${productId}`);
