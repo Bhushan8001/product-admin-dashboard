@@ -1,4 +1,5 @@
 "use client";
+
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addProduct, getProduct, updateProduct } from "@/lib/api/products";
@@ -6,5 +7,97 @@ import { getLocalProduct, saveAddedProduct, saveUpdatedProduct } from "@/lib/pro
 import { Product, ProductFormData } from "@/lib/types";
 import Button from "../ui/Button";
 import Loader from "../ui/Loader";
+import Modal from "../ui/Modal";
+
 const EMPTY: ProductFormData = { title: "", description: "", category: "", price: "", stock: "", thumbnail: "" };
-export default function ProductForm({ productId }: { productId?: number }) { const router = useRouter(); const [form, setForm] = useState(EMPTY); const [loading, setLoading] = useState(Boolean(productId)); const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const lock = useRef(false); useEffect(() => { if (!productId) return; (async () => { try { const local = getLocalProduct(productId); const product = local?.title ? local : await getProduct(productId); setForm({ title: product.title, description: product.description, category: product.category, price: String(product.price), stock: String(product.stock), thumbnail: product.thumbnail }); } catch (err: any) { setError(err?.message || "Unable to load this product."); } finally { setLoading(false); } })(); }, [productId]); function update(field: keyof ProductFormData, value: string) { setForm(current => ({ ...current, [field]: value })); } function validate() { if (form.title.trim().length < 3) return "Product title must contain at least 3 characters."; if (!form.description.trim() || !form.category.trim()) return "Description and category are required."; const price = Number(form.price); if (!Number.isFinite(price) || price < 0) return "Enter a valid non-negative price."; const stock = Number(form.stock); if (!Number.isInteger(stock) || stock < 0) return "Stock must be a non-negative whole number."; if (form.thumbnail && !/^https?:\/\/.+/i.test(form.thumbnail)) return "Thumbnail must be a valid URL."; return null; } async function submit(event: FormEvent) { event.preventDefault(); if (lock.current || saving) return; const validation = validate(); if (validation) { setError(validation); return; } lock.current = true; setSaving(true); setError(""); const payload: Partial<Product> = { title: form.title.trim(), description: form.description.trim(), category: form.category.trim(), price: Number(form.price), stock: Number(form.stock), thumbnail: form.thumbnail.trim() || "https://cdn.dummyjson.com/product-images/1/thumbnail.jpg" }; try { if (productId) { const response = await updateProduct(productId, payload); saveUpdatedProduct(productId, { ...payload, ...response }); router.push(`/products/${productId}`); } else { const response = await addProduct(payload); saveAddedProduct({ ...response, ...payload, thumbnail: payload.thumbnail!, images: response.images ?? [payload.thumbnail!], rating: response.rating ?? 0, reviews: response.reviews ?? [] } as Product); router.push("/products?page=1"); } } catch (err: any) { setError(err?.message || "Unable to save product."); } finally { lock.current = false; setSaving(false); } } if (loading) return <Loader />; return <form onSubmit={submit} className="rounded-xl border bg-white p-6 shadow-sm">{error && <div className="mb-5 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}<div className="grid gap-5 md:grid-cols-2">{(["title", "description", "category", "price", "stock", "thumbnail"] as const).map(field => <div key={field} className={field === "title" || field === "description" ? "md:col-span-2" : ""}><label className="mb-1 block text-sm font-medium">{field[0].toUpperCase() + field.slice(1)}{field !== "thumbnail" && " *"}</label>{field === "description" ? <textarea value={form[field]} onChange={event => update(field, event.target.value)} rows={5} className="w-full rounded-lg border px-3 py-2" /> : <input type={field === "price" || field === "stock" ? "number" : field === "thumbnail" ? "url" : "text"} value={form[field]} onChange={event => update(field, event.target.value)} className="w-full rounded-lg border px-3 py-2" />}</div>)}</div><div className="mt-6 flex justify-end gap-3"><Button type="button" variant="secondary" disabled={saving} onClick={() => router.back()}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving..." : productId ? "Save Changes" : "Create Product"}</Button></div></form>; }
+
+export default function ProductForm({ productId }: { productId?: number }) {
+  const router = useRouter();
+  const [form, setForm] = useState(EMPTY);
+  const [loading, setLoading] = useState(Boolean(productId));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const lock = useRef(false);
+
+  useEffect(() => {
+    if (!productId) return;
+    (async () => {
+      try {
+        const local = getLocalProduct(productId);
+        const product = local?.title ? local : await getProduct(productId);
+        setForm({ title: product.title, description: product.description, category: product.category, price: String(product.price), stock: String(product.stock), thumbnail: product.thumbnail });
+      } catch (err: any) {
+        setError(err?.message || "Unable to load this product.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [productId]);
+
+  function update(field: keyof ProductFormData, value: string) {
+    setForm(current => ({ ...current, [field]: value }));
+  }
+
+  function validate() {
+    if (form.title.trim().length < 3) return "Product title must contain at least 3 characters.";
+    if (!form.description.trim() || !form.category.trim()) return "Description and category are required.";
+    const price = Number(form.price);
+    if (!Number.isFinite(price) || price < 0) return "Enter a valid non-negative price.";
+    const stock = Number(form.stock);
+    if (!Number.isInteger(stock) || stock < 0) return "Stock must be a non-negative whole number.";
+    if (form.thumbnail && !/^https?:\/\/.+/i.test(form.thumbnail)) return "Thumbnail must be a valid URL.";
+    return null;
+  }
+
+  async function save() {
+    if (lock.current || saving) return;
+    lock.current = true;
+    setSaving(true);
+    setError("");
+    const payload: Partial<Product> = { title: form.title.trim(), description: form.description.trim(), category: form.category.trim(), price: Number(form.price), stock: Number(form.stock), thumbnail: form.thumbnail.trim() || "https://cdn.dummyjson.com/product-images/1/thumbnail.jpg" };
+    try {
+      if (productId) {
+        const response = await updateProduct(productId, payload);
+        saveUpdatedProduct(productId, { ...payload, ...response });
+        router.push(`/products/${productId}`);
+      } else {
+        const response = await addProduct(payload);
+        saveAddedProduct({ ...response, ...payload, thumbnail: payload.thumbnail!, images: response.images ?? [payload.thumbnail!], rating: response.rating ?? 0, reviews: response.reviews ?? [] } as Product);
+        router.push("/products?page=1");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Unable to save product.");
+    } finally {
+      lock.current = false;
+      setSaving(false);
+      setConfirmOpen(false);
+    }
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const validation = validate();
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    setConfirmOpen(true);
+  }
+
+  if (loading) return <Loader />;
+
+  return <>
+    <form onSubmit={submit} className="rounded-xl border bg-white p-6 shadow-sm">
+      {error && <div className="mb-5 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      <div className="grid gap-5 md:grid-cols-2">
+        {(["title", "description", "category", "price", "stock", "thumbnail"] as const).map(field => <div key={field} className={field === "title" || field === "description" ? "md:col-span-2" : ""}><label className="mb-1 block text-sm font-medium">{field[0].toUpperCase() + field.slice(1)}{field !== "thumbnail" && " *"}</label>{field === "description" ? <textarea value={form[field]} onChange={event => update(field, event.target.value)} rows={5} className="w-full rounded-lg border px-3 py-2" /> : <input type={field === "price" || field === "stock" ? "number" : field === "thumbnail" ? "url" : "text"} value={form[field]} onChange={event => update(field, event.target.value)} className="w-full rounded-lg border px-3 py-2" />}</div>)}
+      </div>
+      <div className="mt-6 flex justify-end gap-3"><Button type="button" variant="secondary" disabled={saving} onClick={() => router.back()}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving..." : productId ? "Save Changes" : "Create Product"}</Button></div>
+    </form>
+    <Modal open={confirmOpen} title={productId ? "Save changes?" : "Create product?"} onClose={() => setConfirmOpen(false)}>
+      <p className="text-sm text-gray-600">{productId ? "Are you sure you want to save these changes?" : "Are you sure you want to create this product?"}</p>
+      <div className="mt-6 flex justify-end gap-3"><Button type="button" variant="secondary" disabled={saving} onClick={() => setConfirmOpen(false)}>Cancel</Button><Button type="button" disabled={saving} onClick={save}>{saving ? "Saving..." : "Confirm"}</Button></div>
+    </Modal>
+  </>;
+}
