@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function ProductNotFound() { return <main className="flex min-h-screen items-center justify-center"><div className="text-center"><p className="text-6xl">404</p><h1 className="mt-4 text-2xl font-bold">Product Not Found</h1><Link href="/products" className="mt-6 inline-block rounded-lg bg-blue-600 px-5 py-2.5 text-white">Back to Products</Link></div></main>; }
